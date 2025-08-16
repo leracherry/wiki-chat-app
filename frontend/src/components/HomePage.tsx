@@ -22,42 +22,42 @@ export default function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-cohere-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-cohere-background flex items-center justify-center p-6">
       <div className="max-w-2xl w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-cohere-dark mb-4">
+        <div className="text-center mb-10">
+          <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-[#39594d] mb-3">
             Wiki Chat Assistant
           </h1>
-          <p className="text-cohere-dark/70 text-lg">
-            Ask me anything and I can search Wikipedia for additional context
+          <p className="text-ink/70 text-base sm:text-lg">
+            Ask anything. Toggle Wikipedia for extra context when useful.
           </p>
         </div>
 
-        <div className="bg-white rounded-lg shadow-lg border border-cohere-border p-8">
+        <div className="bg-cohere-light rounded-2xl shadow-sm border border-cohere-border p-6 sm:p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label htmlFor="query" className="block text-sm font-medium text-cohere-dark mb-2">
-                Your Question
+              <label htmlFor="query" className="block text-sm font-medium text-ink mb-2">
+                Your question
               </label>
               <textarea
                 id="query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Who was the second person to walk on the moon?"
-                className="w-full px-4 py-3 border border-cohere-border rounded-lg focus:ring-2 focus:ring-cohere-dark focus:border-cohere-dark resize-none bg-cohere-background/50"
+                className="w-full px-4 py-3 border border-cohere-border rounded-xl bg-cohere-background shadow-sm placeholder:text-ink/40 focus:ring-2 focus:ring-brand-base/50 focus:border-brand-base resize-none"
                 rows={4}
               />
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
                 id="wikipedia"
                 checked={useWikipedia}
                 onChange={(e) => setUseWikipedia(e.target.checked)}
-                className="h-4 w-4 text-cohere-dark focus:ring-cohere-dark border-cohere-border rounded"
+                className="h-4 w-4 text-brand-base focus:ring-brand-base border-cohere-border rounded"
               />
-              <label htmlFor="wikipedia" className="text-sm font-medium text-cohere-dark">
+              <label htmlFor="wikipedia" className="text-sm font-medium text-ink">
                 Use Wikipedia for additional context
               </label>
             </div>
@@ -65,7 +65,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={!query.trim()}
-              className="w-full inline-flex items-center justify-center bg-brand-base hover:bg-brand-hover text-white py-3 px-6 rounded-lg font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-hover/50 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+              className="w-full inline-flex items-center justify-center bg-brand-base text-white py-3 px-6 rounded-lg font-medium shadow-sm hover:brightness-95 active:brightness-90 transition duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/50 focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send Message
             </button>

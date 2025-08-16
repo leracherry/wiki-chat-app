@@ -175,10 +175,7 @@ class WikipediaSearchTool:
                         },
                         "limit": {
                             "type": "integer",
-                            "description": "Maximum number of results to return (default: 3)",
-                            "minimum": 1,
-                            "maximum": 5,
-                            "default": 3
+                            "description": "Maximum number of results to return"
                         }
                     },
                     "required": ["query"]

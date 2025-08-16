@@ -4,6 +4,9 @@
 
 @layer base {
   html {
-    font-family: system-ui, sans-serif;
+    font-family: theme('fontFamily.sans');
+  }
+  body {
+    @apply bg-cohere-background text-ink antialiased;
   }
 }

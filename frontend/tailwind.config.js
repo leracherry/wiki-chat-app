@@ -8,24 +8,41 @@ export default {
     extend: {
       colors: {
         cohere: {
-          dark: '#39594d',
-          light: '#e9e6de',
+          dark: '#39594f',
+          light: '#e8e6de',
           border: '#e0e0e1',
-          background: '#fafafb',
+          background: '#fafafa',
         },
         wikipedia: {
-          label: '#d18ee2',
+          label: '#d28fe3',
         },
         user: {
           message: '#39594d',
         },
         brand: {
-          base: '#39594d',
+          base: '#ff7859',
           hover: '#ff7859',
-        }
+        },
+        accent: '#d28fe3',
+        ink: '#000000',
+      },
+      fontFamily: {
+        sans: [
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'Segoe UI',
+          'Roboto',
+          'Noto Sans',
+          'Ubuntu',
+          'Cantarell',
+          'Helvetica Neue',
+          'Arial',
+          'sans-serif'
+        ]
       }
     },
   },
   plugins: [],
 }
-

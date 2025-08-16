@@ -23,6 +23,29 @@ class ProviderClient:
         self._default_model = settings.default_model
         logger.info("provider.client.initialized", extra={"default_model": self._default_model})
 
+    def _extract_text(self, resp: Any) -> Optional[str]:
+        """Best-effort extraction of assistant text from Cohere chat response."""
+        # Prefer output_text if available (SDK convenience)
+        text = getattr(resp, "output_text", None)
+        if text:
+            return text
+        # Try message.content blocks
+        message = getattr(resp, "message", None)
+        content = getattr(message, "content", None)
+        if content:
+            buf: List[str] = []
+            for block in content or []:
+                t = getattr(block, "text", None)
+                if t:
+                    buf.append(t)
+            if buf:
+                return "".join(buf)
+        # Some SDKs surface text directly
+        text2 = getattr(resp, "text", None)
+        if text2:
+            return text2
+        return None
+
     def _build_params(self, req: CompletionRequest) -> Dict[str, Any]:
         return {
             "messages": [{"role": "user", "content": req.prompt}],
@@ -43,6 +66,8 @@ class ProviderClient:
         # Add Wikipedia tool if requested
         if req.use_wikipedia:
             params["tools"] = [wikipedia_tool.get_tool_definition()]
+            # Reduce hallucinated tool calls by enforcing strict tool usage
+            params["strict_tools"] = True
 
         return params
 
@@ -64,13 +89,7 @@ class ProviderClient:
             duration_ms = (time.perf_counter() - start) * 1000
 
             # Extract response text
-            text = ""
-            if getattr(resp, "message", None) and getattr(resp.message, "content", None):
-                for block in resp.message.content:
-                    if getattr(block, "type", None) == "text":
-                        text = getattr(block, "text", "")
-                        if text:
-                            break
+            text = self._extract_text(resp)
 
             if not text:
                 logger.warning(
@@ -124,7 +143,7 @@ class ProviderClient:
         # Check for tool calls
         if hasattr(response, 'message') and hasattr(response.message, 'tool_calls') and response.message.tool_calls:
             # Handle tool calls
-            tool_results = []
+            combined_results = ""
             for tool_call in response.message.tool_calls:
                 if tool_call.function.name == "wikipedia_search":
                     # Extract tool parameters
@@ -151,53 +170,48 @@ class ProviderClient:
 
                     # Format results for the model
                     formatted_results = self._format_wikipedia_results(search_results)
+                    combined_results += (formatted_results + "\n")
 
-                    tool_results.append({
-                        "call": tool_call,
-                        "outputs": [{"text": formatted_results}]
-                    })
-
-            # Add assistant message with tool calls
+            # Add synthesized context message instead of tool_results wiring
             messages.append({
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "id": tool_result["call"].id,
-                        "type": "function",
-                        "function": {
-                            "name": tool_result["call"].function.name,
-                            "arguments": tool_result["call"].function.arguments
-                        }
-                    } for tool_result in tool_results
-                ]
+                "role": "system",
+                "content": (
+                    "Relevant information from Wikipedia (use as context):\n\n" + combined_results.strip() +
+                    "\nPlease answer the user's last question directly using this context. Do not call any tools."
+                )
             })
 
-            # Add tool result messages
-            for tool_result in tool_results:
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_result["call"].id,
-                    "content": tool_result["outputs"][0]["text"]
-                })
-
-            # Final completion with tool results
+            # Final completion with injected context
             final_params = self._build_chat_params(req, messages)
-            final_params.pop("tools", None)  # Remove tools for final completion
-            final_response = self._client.chat(**final_params)
+            # Disable tools for the final answer
+            final_params.pop("tools", None)
+            final_params.pop("strict_tools", None)
+            final_params["tool_choice"] = "none"
+            try:
+                final_response = self._client.chat(**final_params)
+            except Exception as exc:
+                logger.warning(
+                    "provider.final.retry_without_tools",
+                    extra={"request_id": request_id, "error_type": type(exc).__name__, "error_message": str(exc)}
+                )
+                # Fallback retry (same params)
+                final_response = self._client.chat(**final_params)
 
             # Extract final response text
-            if hasattr(final_response, 'message') and hasattr(final_response.message, 'content'):
-                for block in final_response.message.content:
-                    if hasattr(block, 'text'):
-                        return [block.text]
+            contents = []
+            if hasattr(final_response, 'message') and getattr(final_response.message, 'content', None):
+                contents = final_response.message.content or []
+            for block in contents:
+                if hasattr(block, 'text') and getattr(block, 'text'):
+                    return [block.text]
 
             return ["I found some information but couldn't generate a response."]
 
         else:
             # No tool calls, return regular response
-            if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                for block in response.message.content:
-                    if hasattr(block, 'text'):
+            if hasattr(response, 'message') and getattr(response.message, 'content', None):
+                for block in (response.message.content or []):
+                    if hasattr(block, 'text') and getattr(block, 'text'):
                         return [block.text]
 
             return ["I couldn't generate a response."]
@@ -221,8 +235,18 @@ class ProviderClient:
         yield StreamingChatResponse(type="chat_id", chat_id=chat_id)
 
         try:
-            # Build initial messages
-            messages = [{"role": "user", "content": req.message}]
+            # Build initial messages with a short system primer when Wikipedia tools are allowed
+            messages: List[Dict[str, Any]] = []
+            if req.use_wikipedia:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "You can call the function tool named 'wikipedia_search' to look up facts on Wikipedia. "
+                        "Use it only when it helps answer the user. Do not invent or call any tools not provided."
+                    )
+                })
+            messages.append({"role": "user", "content": req.message})
+
             params = self._build_chat_params(req, messages)
 
             # Initial completion
@@ -231,6 +255,7 @@ class ProviderClient:
             # Check for tool calls
             if hasattr(response, 'message') and hasattr(response.message, 'tool_calls') and response.message.tool_calls:
                 # Handle tool calls
+                combined_results = ""
                 for tool_call in response.message.tool_calls:
                     if tool_call.function.name == "wikipedia_search":
                         # Extract tool parameters
@@ -261,48 +286,55 @@ class ProviderClient:
 
                         # Format results for the model
                         formatted_results = self._format_wikipedia_results(search_results)
+                        combined_results += (formatted_results + "\n")
 
-                        # Add tool results to conversation
-                        messages.append({
-                            "role": "assistant",
-                            "tool_calls": [{
-                                "id": tool_call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_call.function.name,
-                                    "arguments": tool_call.function.arguments
-                                }
-                            }]
-                        })
+                # Add synthesized context message instead of tool result wiring
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "Relevant information from Wikipedia (use as context):\n\n" + combined_results.strip() +
+                        "\nPlease answer the user's last question directly using this context. Do not call any tools."
+                    )
+                })
 
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": formatted_results
-                        })
-
-                # Final completion with tool results
+                # Final completion with injected context
                 final_params = self._build_chat_params(req, messages)
-                final_params.pop("tools", None)  # Remove tools for final completion
-                final_response = self._client.chat(**final_params)
+                final_params.pop("tools", None)
+                final_params.pop("strict_tools", None)
+                final_params["tool_choice"] = "none"
+                try:
+                    final_response = self._client.chat(**final_params)
+                except Exception as exc:
+                    logger.warning(
+                        "provider.final.retry_without_tools",
+                        extra={"request_id": request_id, "chat_id": chat_id, "error_type": type(exc).__name__, "error_message": str(exc)}
+                    )
+                    # Fallback retry (same params)
+                    final_response = self._client.chat(**final_params)
 
                 # Stream final response
-                if hasattr(final_response, 'message') and hasattr(final_response.message, 'content'):
-                    for block in final_response.message.content:
-                        if hasattr(block, 'text'):
+                contents = []
+                if hasattr(final_response, 'message') and getattr(final_response.message, 'content', None):
+                    contents = final_response.message.content or []
+                if contents:
+                    for block in contents:
+                        if hasattr(block, 'text') and getattr(block, 'text'):
                             # Stream the text in chunks for real-time effect
                             text = block.text
-                            chunk_size = 10  # Stream in small chunks
+                            chunk_size = 10
                             for i in range(0, len(text), chunk_size):
                                 chunk = text[i:i + chunk_size]
                                 yield StreamingChatResponse(type="text", text=chunk)
-                                # Small delay for real-time streaming effect
                                 await asyncio.sleep(0.03)
+                else:
+                    # Fallback: emit a simple message if no content present
+                    yield StreamingChatResponse(type="text", text="I found information but couldn't format a response.")
+
             else:
                 # No tool calls, stream regular response
-                if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                    for block in response.message.content:
-                        if hasattr(block, 'text'):
+                if hasattr(response, 'message') and getattr(response.message, 'content', None):
+                    for block in (response.message.content or []):
+                        if hasattr(block, 'text') and getattr(block, 'text'):
                             # Stream the text in chunks for real-time effect
                             text = block.text
                             chunk_size = 10  # Stream in small chunks
