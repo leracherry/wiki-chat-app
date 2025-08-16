@@ -1,0 +1,13 @@
+# IDE and editors
+.idea/
+.vscode/
+
+# OS generated files
+.DS_Store
+*.pem
+
+# Docker
+.env
+
+# Logs
+*.log
