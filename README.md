@@ -9,9 +9,9 @@ Minimal chat UI with streaming and optional Wikipedia context.
 Docker (recommended)
 ```bash
 cd wiki-chat-app
-# Create root env (shared defaults)
+# Copy defaults and set your key
 cp .env.example .env
-# Optionally override per service
+# Optionally set per-service values
 # echo "PROVIDER_API_KEY=YOUR_COHERE_KEY" > api/.env
 # echo "VITE_API_URL=http://localhost:8000" > frontend/.env
 
@@ -33,44 +33,31 @@ npm install
 npm run dev
 ```
 
-## 2) Environment configuration (root and overrides)
-This project supports layered environment files with clear precedence so you can define defaults at the repo root and override them per service.
+## 2) Environment configuration (simple)
+You only need two variables for local use:
+- Backend: PROVIDER_API_KEY (your Cohere API key; DEFAULT_MODEL optional)
+- Frontend: VITE_API_URL (API base URL; defaults to http://localhost:8000)
 
-- Root (shared): `.env`, `.env.local`
-- Backend (API): `api/.env`, `api/.env.local`
-- Frontend (Vite): `frontend/.env`, `frontend/.env.local`, plus mode-specific variants (e.g. `.env.development`)
+Pick one of these simple setups:
+- Docker Compose: put backend values in root .env or api/.env. If you need a non-default API URL for the frontend, set it in frontend/.env (Vite reads frontend/.env at build time).
+- No Docker: put backend vars in api/.env and frontend vars in frontend/.env. Each app reads its own .env.
 
-Precedence (lowest → highest):
-1) repo-root/.env
-2) repo-root/.env.local
-3) api/.env or frontend/.env
-4) api/.env.local or frontend/.env.local
-5) Process env and explicit docker-compose environment entries
-
-Notes
-- Docker Compose loads `./.env` first, then service-level env files (`./api/.env`, `./frontend/.env`). Values later in the list override earlier ones.
-- The backend (FastAPI) also loads env files in the order above at process start.
-- The frontend (Vite) loads root env first (via vite.config.ts), then standard Vite env resolution so `frontend/.env*` can override.
-
-Root .env example
+Examples
 ```env
-# Backend
-PROVIDER_API_KEY=your-provider-key-here
+# api/.env (backend)
+PROVIDER_API_KEY=your-provider-key
 DEFAULT_MODEL=command-r-plus
 LOG_LEVEL=INFO
 PORT=8000
-
-# Frontend
+```
+```env
+# frontend/.env
 VITE_API_URL=http://localhost:8000
 ```
 
-Common overrides
-```bash
-# Backend only override
-echo "PROVIDER_API_KEY=YOUR_REAL_KEY" > api/.env
-# Frontend only override
-echo "VITE_API_URL=http://wiki-chat-api:8000" > frontend/.env
-```
+Notes
+- Docker Compose wires env files to containers (./.env, api/.env, frontend/.env). Vite builds only read frontend/.env* files.
+- The backend also accepts COHERE_API_KEY for compatibility if PROVIDER_API_KEY isn’t set.
 
 ## 3) Design decisions & limitations
 - SSE streaming for simplicity; no client→server backpressure.

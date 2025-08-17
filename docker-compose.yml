@@ -30,9 +30,6 @@ services:
     container_name: wiki-chat-frontend
     ports:
       - "3000:3000"
-    # This value can be overridden via env files
-    environment:
-      - VITE_API_URL=http://wiki-chat-api:8000
     env_file:
       - ./.env
       - ./frontend/.env
