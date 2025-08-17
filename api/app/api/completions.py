@@ -50,7 +50,7 @@ async def create_completion(request: CompletionRequest):
         duration_ms = (time.perf_counter() - start_time) * 1000
         
         logger.info(
-            "completion.endpoint.success", 
+            "completion.endpoint.response",
             extra={
                 "endpoint_id": endpoint_id,
                 "duration_ms": round(duration_ms, 2),
@@ -60,87 +60,68 @@ async def create_completion(request: CompletionRequest):
         
         return response
         
-    except ValueError as exc:
-        duration_ms = (time.perf_counter() - start_time) * 1000
+    except ValueError as e:
         logger.warning(
-            "completion.endpoint.validation_error",
-            extra={
-                "endpoint_id": endpoint_id,
-                "duration_ms": round(duration_ms, 2),
-                "error": str(exc)
-            }
+            "completion.endpoint.client_error",
+            extra={"endpoint_id": endpoint_id, "error": str(e)}
         )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-        
-    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    except Exception as e:
         duration_ms = (time.perf_counter() - start_time) * 1000
         logger.error(
-            "completion.endpoint.error",
+            "completion.endpoint.server_error",
             extra={
                 "endpoint_id": endpoint_id,
                 "duration_ms": round(duration_ms, 2),
-                "error_type": type(exc).__name__,
-                "error_message": str(exc)
-            },
-            exc_info=True
+                "error": str(e)
+            }
         )
-        raise HTTPException(status_code=500, detail="Internal server error") from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from e
 
 
-@router.post("/chat/stream")
-async def stream_chat(request: ChatRequest):
-    """Stream chat responses with optional Wikipedia tool integration."""
-    endpoint_id = str(uuid.uuid4())[:8]
+@router.post("/chat")
+async def chat_stream(request: ChatRequest):
+    """Stream chat completion with optional Wikipedia tool use."""
+    chat_id = request.chat_id or str(uuid.uuid4())
     start_time = time.perf_counter()
 
     logger.info(
-        "chat.stream.endpoint.request",
+        "chat.endpoint.request",
         extra={
-            "endpoint_id": endpoint_id,
+            "chat_id": chat_id,
             **request.to_log_dict()
         }
     )
 
     async def generate_stream():
         try:
-            async for response in provider_client.chat_stream(request):
-                # Format as Server-Sent Events
-                data = response.model_dump_json()
-                yield f"data: {data}\n\n"
+            # Send chat_id first
+            yield f"data: {json.dumps({'type': 'chat_id', 'chat_id': chat_id})}\n\n"
 
-                # Log tool usage
-                if response.type == "tool" and response.query:
-                    logger.info(
-                        "chat.stream.wikipedia.search",
-                        extra={
-                            "endpoint_id": endpoint_id,
-                            "chat_id": response.chat_id,
-                            "query": response.query
-                        }
-                    )
+            async for chunk in provider_client.chat_stream(request, chat_id):
+                yield f"data: {json.dumps(chunk.dict())}\n\n"
 
-        except Exception as exc:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            logger.info(
+                "chat.endpoint.completed",
+                extra={
+                    "chat_id": chat_id,
+                    "duration_ms": round(duration_ms, 2)
+                }
+            )
+
+        except Exception as e:
             duration_ms = (time.perf_counter() - start_time) * 1000
             logger.error(
-                "chat.stream.endpoint.error",
+                "chat.endpoint.error",
                 extra={
-                    "endpoint_id": endpoint_id,
+                    "chat_id": chat_id,
                     "duration_ms": round(duration_ms, 2),
-                    "error_type": type(exc).__name__,
-                    "error_message": str(exc)
-                },
-                exc_info=True
+                    "error": str(e)
+                }
             )
-            error_response = StreamingChatResponse(type="error", error=str(exc))
-            yield f"data: {error_response.model_dump_json()}\n\n"
+            error_response = StreamingChatResponse(type="error", error=str(e))
+            yield f"data: {json.dumps(error_response.dict())}\n\n"
 
-    return StreamingResponse(
-        generate_stream(),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+    return StreamingResponse(generate_stream(), media_type="text/event-stream")

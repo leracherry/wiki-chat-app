@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Smoke tests for the text completion service."""
 
+import os
 import requests
 import json
 import sys
@@ -25,7 +26,7 @@ def log_test_result(test_name: str, success: bool, details: Dict[str, Any] = Non
         print(f"❌ {test_name} failed")
 
 
-def test_api(base_url: str = "http://localhost:8000") -> bool:
+def test_api(base_url: str = "http://localhost:8000/api") -> bool:
     """Test health and completion endpoints."""
     
     logger.info("test.suite.started", extra={"base_url": base_url})
@@ -55,7 +56,14 @@ def test_api(base_url: str = "http://localhost:8000") -> bool:
     
     print()
     
-    # Test completion endpoint
+    # Test completion endpoint (only if API key is configured)
+    if not os.getenv("PROVIDER_API_KEY") and not os.getenv("COHERE_API_KEY"):
+        print("⏭️  Skipping completion test (no PROVIDER_API_KEY configured)")
+        logger.info("test.completion.skipped", extra={"reason": "missing_api_key"})
+        print()
+        print("🎉 Health test passed!")
+        return True
+
     try:
         completion_request = {
             "prompt": "Provide a concise fact about the second person on the moon.",
@@ -114,7 +122,7 @@ def test_api(base_url: str = "http://localhost:8000") -> bool:
 
 if __name__ == "__main__":
     # Allow custom base URL as command line argument
-    base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
-    
+    base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000/api"
+
     success = test_api(base_url)
     sys.exit(0 if success else 1)
