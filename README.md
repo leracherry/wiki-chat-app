@@ -5,7 +5,7 @@ Minimal chat UI with streaming and optional Wikipedia context.
 ## 1) Getting started
 
 - Prereqs: Docker (or Python 3.11 + Node 18) and a Cohere API key.
-
+ 
 Docker (recommended)
 ```bash
 cd wiki-chat-app
